@@ -48,9 +48,15 @@
 
 11. Navigate to `venv\Lib\site-packages\torch\lib`
 
+
 12. Copy `cublas64_11.dll` and `cusparse64_11.dll` from ZLUDA (`cublas.dll` and `cusparse.dll` respectively) and paste them here.
 
-13. Run the main script:
+
+13. *** IMPORTANT *** Before running ComfyUI, you must apply the following changes in `model_management.py` and `cuda_malloc.py`. Both files are located in `ComfyUI\comfy`:
+    * [model_management.py](https://github.com/zubenelakrab/ComfyUI_AMD_ZLUDA/commit/9ade8ca17156c7e18949f07180c1aee976b1d0d6)
+    * [cuda_malloc.py](https://github.com/zubenelakrab/ComfyUI_AMD_ZLUDA/commit/b3b993d194bdbdd67c1178a95f1fe823e13b7ff6)
+          
+14. Run the main script:
     ```bash
     python .\main.py
     ```
