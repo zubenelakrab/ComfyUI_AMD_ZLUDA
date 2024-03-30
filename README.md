@@ -58,7 +58,7 @@
           
 14. Run the main script:
     ```bash
-    python .\main.py
+    python main.py
     ```
 
 Now, ComfyUI should be up and running using AMD with ZLUDA on Windows.
