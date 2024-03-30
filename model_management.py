@@ -252,8 +252,25 @@ def get_torch_device_name(device):
     else:
         return "CUDA {}: {}".format(device, torch.cuda.get_device_name(device))
 
-try:
-    logging.info("Device: {}".format(get_torch_device_name(get_torch_device())))
+try:       
+    torch_device_name = get_torch_device_name(get_torch_device())
+
+    if "[ZLUDA]" in torch_device_name:
+        print("Detected ZLUDA, this is experimental and may not work properly.")
+
+        if torch.backends.cudnn.enabled:
+            torch.backends.cudnn.enabled = False
+            print("cuDNN is disabled because ZLUDA does currently not support it.")
+
+        torch.backends.cuda.enable_flash_sdp(True)
+        torch.backends.cuda.enable_math_sdp(False)
+        torch.backends.cuda.enable_mem_efficient_sdp(False)
+
+        if ENABLE_PYTORCH_ATTENTION:
+            print("Disabling pytorch cross attention because it's not supported by ZLUDA.")
+            ENABLE_PYTORCH_ATTENTION = False
+
+    print("Device:", torch_device_name)
 except:
     logging.warning("Could not pick default device.")
 
