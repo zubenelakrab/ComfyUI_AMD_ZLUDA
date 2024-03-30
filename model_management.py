@@ -253,7 +253,25 @@ def get_torch_device_name(device):
         return "CUDA {}: {}".format(device, torch.cuda.get_device_name(device))
 
 try:
-    logging.info("Device: {}".format(get_torch_device_name(get_torch_device())))
+    
+    torch_device_name = get_torch_device_name(get_torch_device())
+
+    if "[ZLUDA]" in torch_device_name:
+        print("Detected ZLUDA, this is experimental and may not work properly.")
+
+        if torch.backends.cudnn.enabled:
+            torch.backends.cudnn.enabled = False
+            print("cuDNN is disabled because ZLUDA does currently not support it.")
+
+        torch.backends.cuda.enable_flash_sdp(True)
+        torch.backends.cuda.enable_math_sdp(False)
+        torch.backends.cuda.enable_mem_efficient_sdp(False)
+
+        if ENABLE_PYTORCH_ATTENTION:
+            print("Disabling pytorch cross attention because it's not supported by ZLUDA.")
+            ENABLE_PYTORCH_ATTENTION = False
+
+    print("Device:", torch_device_name)
 except:
     logging.warning("Could not pick default device.")
 
@@ -274,7 +292,6 @@ class LoadedModel:
         self.model = model
         self.device = model.load_device
         self.weights_loaded = False
-        self.real_model = None
 
     def model_memory(self):
         return self.model.model_size()
@@ -313,7 +330,6 @@ class LoadedModel:
         self.model.unpatch_model(self.model.offload_device, unpatch_weights=unpatch_weights)
         self.model.model_patches_to(self.model.offload_device)
         self.weights_loaded = self.weights_loaded and not unpatch_weights
-        self.real_model = None
 
     def __eq__(self, other):
         return self.model is other.model
@@ -328,7 +344,7 @@ def unload_model_clones(model, unload_weights_only=True, force_unload=True):
             to_unload = [i] + to_unload
 
     if len(to_unload) == 0:
-        return True
+        return None
 
     same_weights = 0
     for i in to_unload:
@@ -351,27 +367,20 @@ def unload_model_clones(model, unload_weights_only=True, force_unload=True):
     return unload_weight
 
 def free_memory(memory_required, device, keep_loaded=[]):
-    unloaded_model = []
-    can_unload = []
-
+    unloaded_model = False
     for i in range(len(current_loaded_models) -1, -1, -1):
-        shift_model = current_loaded_models[i]
-        if shift_model.device == device:
-            if shift_model not in keep_loaded:
-                can_unload.append((sys.getrefcount(shift_model.model), shift_model.model_memory(), i))
-
-    for x in sorted(can_unload):
-        i = x[-1]
         if not DISABLE_SMART_MEMORY:
             if get_free_memory(device) > memory_required:
                 break
-        current_loaded_models[i].model_unload()
-        unloaded_model.append(i)
+        shift_model = current_loaded_models[i]
+        if shift_model.device == device:
+            if shift_model not in keep_loaded:
+                m = current_loaded_models.pop(i)
+                m.model_unload()
+                del m
+                unloaded_model = True
 
-    for i in sorted(unloaded_model, reverse=True):
-        current_loaded_models.pop(i)
-
-    if len(unloaded_model) > 0:
+    if unloaded_model:
         soft_empty_cache()
     else:
         if vram_state != VRAMState.HIGH_VRAM:
@@ -410,8 +419,8 @@ def load_models_gpu(models, memory_required=0):
 
     total_memory_required = {}
     for loaded_model in models_to_load:
-        if unload_model_clones(loaded_model.model, unload_weights_only=True, force_unload=False) == True:#unload clones where the weights are different
-            total_memory_required[loaded_model.device] = total_memory_required.get(loaded_model.device, 0) + loaded_model.model_memory_required(loaded_model.device)
+        unload_model_clones(loaded_model.model, unload_weights_only=True, force_unload=False) #unload clones where the weights are different
+        total_memory_required[loaded_model.device] = total_memory_required.get(loaded_model.device, 0) + loaded_model.model_memory_required(loaded_model.device)
 
     for device in total_memory_required:
         if device != torch.device("cpu"):
@@ -450,15 +459,11 @@ def load_models_gpu(models, memory_required=0):
 def load_model_gpu(model):
     return load_models_gpu([model])
 
-def cleanup_models(keep_clone_weights_loaded=False):
+def cleanup_models():
     to_delete = []
     for i in range(len(current_loaded_models)):
         if sys.getrefcount(current_loaded_models[i].model) <= 2:
-            if not keep_clone_weights_loaded:
-                to_delete = [i] + to_delete
-            #TODO: find a less fragile way to do this.
-            elif sys.getrefcount(current_loaded_models[i].real_model) <= 3: #references from .real_model + the .model
-                to_delete = [i] + to_delete
+            to_delete = [i] + to_delete
 
     for i in to_delete:
         x = current_loaded_models.pop(i)
