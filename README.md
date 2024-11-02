@@ -1,7 +1,7 @@
 # Running ComfyUI with AMD + ZLUDA (Windows)
 
 ## Requirements:
-- ZLUDA (Installed and PATH enabled)
+- ZLUDA (Install ZLUDA and add it to the PATH environment variable)
 - Git
 - Miniconda
 
